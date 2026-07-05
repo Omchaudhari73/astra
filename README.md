@@ -1,6 +1,5 @@
 <div align="center">
 
-
 <img width="400" height="400" alt="12" src="https://github.com/user-attachments/assets/5b5f2526-6488-422f-8394-f97de852b2e9" />
 
 # ASTRA
@@ -11,23 +10,12 @@
 
 </div>
 
-
 # What Is This?
 
 Astra is an AI-powered bug bounty hunting agent that runs on Kali Linux. You give it a domain, it does everything — subdomain enumeration, live host discovery, crawling, and then runs 25 automated vulnerability classes against the target. Every finding gets fed to an AI model that triages it, estimates bounty value, builds attack chains, and writes submission-ready reports.
 
-```text
- █████╗ ███████╗████████╗██████╗  █████╗
-██╔══██╗██╔════╝╚══██╔══╝██╔══██╗██╔══██╗
-███████║███████╗   ██║   ██████╔╝███████║
-██╔══██║╚════██║   ██║   ██╔══██╗██╔══██║
-██║  ██║███████║   ██║   ██║  ██║██║  ██║
-╚═╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝
 
-        Autonomous Security Threat Research Agent
-
-        Recon • Hunt • Analyze • Validate • Report
-```
+<img width="1920" height="930" alt="Screenshot_2026-07-05_12-13-24" src="https://github.com/user-attachments/assets/294d2cb1-13cd-4ffc-b3a9-a31c83388d6c" />
 
 ---
 
