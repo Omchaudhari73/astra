@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Astra Security Platform</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: #0a0a0a; 
+            color: #fff; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+        }
+        .header {
+            background: #111;
+            border: 1px solid #222;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .header h1 { color: #00ff88; margin-bottom: 8px; }
+        .header p { color: #666; }
+        .status { 
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-left: 12px;
+        }
+        .status.connected { background: #004400; color: #00ff88; }
+        .status.disconnected { background: #440000; color: #ff4444; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        .card {
+            background: #111;
+            border: 1px solid #222;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .card h3 { color: #666; font-size: 14px; margin-bottom: 8px; }
+        .card .value { font-size: 32px; font-weight: bold; }
+        .card .value.green { color: #00ff88; }
+        .card .value.red { color: #ff6b6b; }
+        .card .value.yellow { color: #ffd93d; }
+        button {
+            padding: 12px 24px;
+            background: #00ff88;
+            color: #000;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-right: 8px;
+        }
+        button.danger { background: #ff4444; color: #fff; }
+        input, select {
+            padding: 12px;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #fff;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            padding: 8px;
+            margin: 4px 0;
+        }
+        .method {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            min-width: 48px;
+            text-align: center;
+        }
+        .method.get { background: #004400; color: #00ff88; }
+        .method.post { background: #444400; color: #ffd93d; }
+        .method.delete { background: #440000; color: #ff4444; }
+        code { color: #00ff88; font-family: monospace; }
+        #output {
+            background: #111;
+            border: 1px solid #222;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛡️ Astra Security Platform</h1>
+        <p>AI-Powered Cybersecurity Research Workspace 
+            <span id="status" class="status disconnected">Checking...</span>
+        </p>
+    </div>
+
+    <div class="grid" id="stats"></div>
+
+    <div class="card" style="margin-bottom: 20px;">
+        <h3>Create New Workspace</h3>
+        <div>
+            <input type="text" id="wsName" placeholder="Workspace Name">
+            <input type="text" id="wsDomain" placeholder="Domain (e.g., example.com)">
+            <button onclick="createWorkspace()">Create Workspace</button>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 20px;">
+        <h3>Quick Actions</h3>
+        <button onclick="loadDashboard()">Refresh Dashboard</button>
+        <button onclick="loadWorkspaces()">List Workspaces</button>
+        <button onclick="testAPI()">Test Connection</button>
+        <button class="danger" onclick="clearAll()">Clear Data</button>
+    </div>
+
+    <div class="card">
+        <h3>API Endpoints</h3>
+        <div class="endpoint"><span class="method get">GET</span><code>/health</code> - Health Check</div>
+        <div class="endpoint"><span class="method get">GET</span><code>/api/workspaces</code> - List Workspaces</div>
+        <div class="endpoint"><span class="method post">POST</span><code>/api/workspaces</code> - Create Workspace</div>
+        <div class="endpoint"><span class="method get">GET</span><code>/api/findings</code> - List Findings</div>
+        <div class="endpoint"><span class="method post">POST</span><code>/api/findings</code> - Create Finding</div>
+        <div class="endpoint"><span class="method get">GET</span><code>/api/recon/sessions</code> - Recon Sessions</div>
+        <div class="endpoint"><span class="method post">POST</span><code>/api/recon/start</code> - Start Recon</div>
+        <div class="endpoint"><span class="method get">GET</span><code>/api/agents/status</code> - Agent Status</div>
+        <div class="endpoint"><span class="method get">GET</span><code>/api/search?query=</code> - Search</div>
+        <div class="endpoint"><span class="method get">GET</span><code>/docs</code> - Interactive Docs</div>
+    </div>
+
+    <div id="output"></div>
+
+    <script>
+        const API = 'http://localhost:8000';
+        
+        async function testAPI() {
+            try {
+                const res = await fetch(`${API}/health`);
+                const data = await res.json();
+                document.getElementById('status').textContent = '🟢 Connected';
+                document.getElementById('status').className = 'status connected';
+                document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+            } catch(e) {
+                document.getElementById('status').textContent = '🔴 Disconnected';
+                document.getElementById('status').className = 'status disconnected';
+                document.getElementById('output').textContent = 'Error: ' + e.message;
+            }
+        }
+        
+        async function loadDashboard() {
+            try {
+                const res = await fetch(`${API}/api/dashboard/stats`);
+                const data = await res.json();
+                document.getElementById('stats').innerHTML = `
+                    <div class="card"><h3>Workspaces</h3><div class="value green">${data.total_workspaces}</div></div>
+                    <div class="card"><h3>Findings</h3><div class="value red">${data.total_findings}</div></div>
+                    <div class="card"><h3>Active Scans</h3><div class="value yellow">${data.active_recon_sessions}</div></div>
+                    <div class="card"><h3>Open Findings</h3><div class="value red">${data.open_findings}</div></div>
+                `;
+                document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+            } catch(e) {
+                document.getElementById('output').textContent = 'Error: ' + e.message;
+            }
+        }
+        
+        async function loadWorkspaces() {
+            try {
+                const res = await fetch(`${API}/api/workspaces`);
+                const data = await res.json();
+                document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+            } catch(e) {
+                document.getElementById('output').textContent = 'Error: ' + e.message;
+            }
+        }
+        
+        async function createWorkspace() {
+            const name = document.getElementById('wsName').value;
+            const domain = document.getElementById('wsDomain').value;
+            if (!name || !domain) {
+                alert('Please enter workspace name and domain');
+                return;
+            }
+            try {
+                const res = await fetch(`${API}/api/workspaces`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        name: name,
+                        target_domains: [domain],
+                        ai_provider: 'openai'
+                    })
+                });
+                const data = await res.json();
+                document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+                loadDashboard();
+            } catch(e) {
+                document.getElementById('output').textContent = 'Error: ' + e.message;
+            }
+        }
+        
+        function clearAll() {
+            document.getElementById('output').textContent = '';
+            document.getElementById('wsName').value = '';
+            document.getElementById('wsDomain').value = '';
+        }
+        
+        // Load on start
+        testAPI();
+        loadDashboard();
+    </script>
+</body>
+</html>

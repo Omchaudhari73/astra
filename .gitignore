@@ -1,0 +1,28 @@
+# Secrets
+.env
+backend/.env
+
+# Virtual Environments
+venv/
+backend/venv/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Scan Data
+recon/
+reports/
+data/
+
+# Logs
+*.log
+
+# Databases
+*.db
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+memory/*.jsonl

@@ -1,0 +1,1637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ASTRA v6.0 — Security Research Agent</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+/* ═══════════════════════════════════════════
+   DESIGN TOKENS — Military-grade dark terminal
+   Signature: animated scan-line sweep on active ops
+═══════════════════════════════════════════ */
+:root {
+  /* Core palette — deep navy-black with electric blue */
+  --void:   #05070b;
+  --abyss:  #080c12;
+  --deep:   #0c1119;
+  --dark:   #101620;
+  --panel:  #141c28;
+  --card:   #18222f;
+  --raised: #1d2938;
+
+  /* Borders */
+  --b0: rgba(255,255,255,.03);
+  --b1: rgba(255,255,255,.06);
+  --b2: rgba(255,255,255,.10);
+  --b3: rgba(255,255,255,.16);
+
+  /* Electric blue — the primary signal */
+  --sig:    #0af;
+  --sig2:   #0090dd;
+  --sig3:   rgba(0,170,255,.14);
+  --sig4:   rgba(0,170,255,.07);
+
+  /* Severity spectrum */
+  --crit:   #ff3553;
+  --crit2:  rgba(255,53,83,.12);
+  --hi:     #ff7b2c;
+  --hi2:    rgba(255,123,44,.12);
+  --med:    #f5c400;
+  --med2:   rgba(245,196,0,.10);
+  --low:    #3ddc84;
+  --low2:   rgba(61,220,132,.10);
+  --info:   #9d8fff;
+  --info2:  rgba(157,143,255,.10);
+
+  /* Text */
+  --t1: #dce9f5;
+  --t2: #7d93ad;
+  --t3: #445566;
+  --t4: #263040;
+
+  /* Type */
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Space Grotesk', sans-serif;
+}
+
+/* ═══════ RESET & BASE ═══════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--sans);
+  background: var(--void);
+  color: var(--t1);
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  line-height: 1.5;
+}
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--b2); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--b3); }
+* { scrollbar-width: thin; scrollbar-color: var(--b2) transparent; }
+
+/* ═══════ SCAN LINE ANIMATION (signature element) ═══════ */
+@keyframes scanSweep {
+  0%   { transform: translateY(-100%); opacity: 0; }
+  5%   { opacity: .4; }
+  95%  { opacity: .4; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+@keyframes pulseGlow {
+  0%,100% { box-shadow: 0 0 8px rgba(0,170,255,.3); }
+  50%      { box-shadow: 0 0 20px rgba(0,170,255,.6), 0 0 40px rgba(0,170,255,.2); }
+}
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes fadeUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+@keyframes slideIn { from { opacity:0; transform:translateX(-10px); } to { opacity:1; transform:translateX(0); } }
+@keyframes dot1 { 0%,100%{opacity:.2}33%{opacity:1} }
+@keyframes dot2 { 0%,100%{opacity:.2}66%{opacity:1} }
+@keyframes dot3 { 0%,100%{opacity:.2}100%{opacity:1} }
+@keyframes barPulse { 0%,100%{opacity:.6}50%{opacity:1} }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes ripple {
+  0%   { transform: scale(1); opacity: .6; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+.scan-line {
+  position: fixed; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--sig), var(--sig2), var(--sig), transparent);
+  pointer-events: none; z-index: 999; display: none;
+  animation: scanSweep 3s linear infinite;
+  box-shadow: 0 0 12px var(--sig), 0 0 30px rgba(0,170,255,.3);
+}
+.scan-line.active { display: block; }
+
+/* ═══════ HEADER ═══════ */
+header {
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 16px; height: 52px;
+  background: var(--abyss);
+  border-bottom: 1px solid var(--b1);
+  flex-shrink: 0; z-index: 40; position: relative;
+}
+header::after {
+  content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--sig), transparent);
+  opacity: .3;
+}
+
+.logo-block { display: flex; align-items: center; gap: 10px; }
+.logo-hex {
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, rgba(0,170,255,.15), rgba(0,170,255,.04));
+  border: 1px solid rgba(0,170,255,.35);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 14px; font-weight: 700; color: var(--sig);
+  position: relative; overflow: hidden;
+}
+.logo-hex::before {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(135deg, rgba(0,170,255,.1), transparent);
+  animation: pulseGlow 3s ease infinite;
+}
+.logo-name { font-family: var(--mono); font-size: 17px; font-weight: 700; color: var(--t1); letter-spacing: 4px; }
+.logo-ver  { font-family: var(--mono); font-size: 9px; color: var(--t3); letter-spacing: 2px; margin-top: -2px; }
+
+.hdr-center { flex: 1; display: flex; align-items: center; justify-content: center; gap: 20px; }
+.hdr-stat {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 10px; color: var(--t3);
+  padding: 4px 10px; border: 1px solid var(--b1); border-radius: 4px;
+}
+.hdr-stat .val { color: var(--sig); font-weight: 600; font-size: 12px; }
+
+.hdr-right { display: flex; align-items: center; gap: 8px; }
+.chip {
+  font-family: var(--mono); font-size: 10px;
+  padding: 3px 10px; border-radius: 20px;
+  border: 1px solid var(--b2); color: var(--t3);
+  display: flex; align-items: center; gap: 5px;
+}
+.chip .dot-led { width: 5px; height: 5px; border-radius: 50%; background: var(--t4); flex-shrink: 0; }
+.chip.on  { border-color: rgba(61,220,132,.4); color: var(--low); background: rgba(61,220,132,.06); }
+.chip.on .dot-led  { background: var(--low); box-shadow: 0 0 6px var(--low); }
+.chip.off { border-color: rgba(255,53,83,.4); color: var(--crit); }
+.chip.off .dot-led { background: var(--crit); }
+.chip.warn{ border-color: rgba(245,196,0,.4); color: var(--med); }
+.chip.warn .dot-led{ background: var(--med); }
+
+/* ═══════ LAYOUT ═══════ */
+.workspace { display: flex; flex: 1; overflow: hidden; }
+
+/* ═══════ SIDEBAR LEFT ═══════ */
+.sidebar {
+  width: 200px; flex-shrink: 0;
+  background: var(--abyss);
+  border-right: 1px solid var(--b1);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.sb-head {
+  padding: 10px 12px 6px;
+  font-family: var(--mono); font-size: 9px;
+  color: var(--t4); letter-spacing: 3px; text-transform: uppercase;
+  border-bottom: 1px solid var(--b0);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.sb-head button {
+  background: none; border: none; color: var(--t3);
+  font-size: 11px; cursor: pointer; padding: 0 2px;
+  transition: color .15s;
+}
+.sb-head button:hover { color: var(--sig); }
+
+.sb-scroll { flex: 1; overflow-y: auto; }
+
+.tool-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 4px 12px; font-family: var(--mono); font-size: 10px;
+  color: var(--t4); transition: .12s; cursor: default;
+}
+.tool-row:hover { background: var(--b0); color: var(--t3); }
+.tool-row.ok { color: var(--t2); }
+.tool-led {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--t4); flex-shrink: 0;
+}
+.tool-row.ok .tool-led { background: var(--low); box-shadow: 0 0 5px rgba(61,220,132,.5); }
+.tool-row.no .tool-led { background: var(--crit); opacity: .5; }
+.tool-count {
+  margin-left: auto; font-size: 9px;
+  color: var(--t4); background: var(--b1);
+  padding: 1px 5px; border-radius: 3px;
+}
+
+.sb-section { border-top: 1px solid var(--b0); }
+
+.target-btn {
+  display: flex; align-items: center; gap: 7px;
+  width: 100%; padding: 6px 12px;
+  background: none; border: none; cursor: pointer;
+  font-family: var(--mono); font-size: 10px; color: var(--t3);
+  text-align: left; transition: .12s;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.target-btn:hover { background: var(--b0); color: var(--t1); }
+.target-btn.active {
+  background: var(--sig4); color: var(--sig);
+  border-left: 2px solid var(--sig);
+}
+.target-btn .t-icon { font-size: 9px; opacity: .5; flex-shrink: 0; }
+
+.mem-stat {
+  padding: 8px 12px;
+  font-family: var(--mono); font-size: 10px; color: var(--t4);
+  line-height: 1.8;
+}
+.mem-stat .mv { color: var(--sig); }
+
+/* Rules strip */
+.rules-list {
+  padding: 6px 12px 10px;
+  font-family: var(--mono); font-size: 9px; color: var(--t4); line-height: 2;
+}
+.rules-list .r { display: flex; gap: 6px; }
+.rules-list .rn { color: var(--t3); }
+
+/* ═══════ MAIN CHAT AREA ═══════ */
+.chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--void); }
+
+/* Target bar */
+.tgt-bar {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 12px; background: var(--abyss);
+  border-bottom: 1px solid var(--b1); flex-shrink: 0;
+}
+.tgt-label {
+  font-family: var(--mono); font-size: 9px; color: var(--t3);
+  letter-spacing: 2px; text-transform: uppercase; white-space: nowrap;
+}
+.tgt-input {
+  flex: 1; background: var(--dark); border: 1px solid var(--b2);
+  border-radius: 6px; padding: 7px 12px;
+  font-family: var(--mono); font-size: 12px; color: var(--t1);
+  outline: none; transition: .15s;
+}
+.tgt-input:focus { border-color: var(--sig); box-shadow: 0 0 0 2px rgba(0,170,255,.1); }
+.tgt-input::placeholder { color: var(--t4); }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 12px; border-radius: 6px;
+  border: 1px solid var(--b2); background: transparent;
+  color: var(--t2); font-family: var(--mono); font-size: 11px;
+  font-weight: 500; cursor: pointer; transition: .15s;
+  white-space: nowrap; flex-shrink: 0;
+}
+.btn:hover:not(:disabled) { border-color: var(--sig); color: var(--sig); background: var(--sig4); }
+.btn:active:not(:disabled) { transform: scale(.97); }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.btn-sig { background: var(--sig); color: #000; border-color: var(--sig); font-weight: 600; }
+.btn-sig:hover:not(:disabled) { background: var(--sig2); border-color: var(--sig2); color: #000; }
+.btn-crit { border-color: rgba(255,53,83,.35); color: var(--crit); }
+.btn-crit:hover:not(:disabled) { background: var(--crit2); border-color: var(--crit); }
+.btn-autopilot {
+  border-color: rgba(245,196,0,.35); color: var(--med);
+  background: rgba(245,196,0,.04);
+}
+.btn-autopilot:hover:not(:disabled) { background: var(--med2); border-color: var(--med); }
+
+/* Auth headers */
+.auth-strip {
+  padding: 6px 12px; background: var(--abyss);
+  border-bottom: 1px solid var(--b0); flex-shrink: 0;
+}
+.auth-toggle {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 10px; color: var(--t3);
+  cursor: pointer; user-select: none; transition: color .15s;
+}
+.auth-toggle:hover { color: var(--t2); }
+.auth-toggle .arrow { transition: transform .2s; font-size: 8px; }
+.auth-toggle .arrow.open { transform: rotate(90deg); }
+.auth-body { display: none; margin-top: 6px; }
+.auth-body.open { display: block; }
+.auth-body textarea {
+  width: 100%; background: var(--dark); border: 1px solid var(--b2);
+  border-radius: 6px; padding: 7px 10px;
+  font-family: var(--mono); font-size: 10px; color: var(--t2);
+  outline: none; resize: none; min-height: 60px; transition: .15s;
+}
+.auth-body textarea:focus { border-color: var(--sig); }
+
+/* Messages */
+.msgs { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+
+.msg { display: flex; flex-direction: column; gap: 3px; max-width: 90%; animation: fadeUp .18s ease; }
+.msg.user  { align-self: flex-end;  align-items: flex-end; }
+.msg.astra,.msg.sys,.msg.prog,.msg.ok,.msg.err,.msg.warn { align-self: flex-start; align-items: flex-start; }
+
+.msg-lbl {
+  font-family: var(--mono); font-size: 9px; color: var(--t4);
+  letter-spacing: 2px; padding: 0 4px; text-transform: uppercase;
+}
+.msg.user .msg-lbl { color: rgba(0,170,255,.4); }
+.msg.ok   .msg-lbl { color: rgba(61,220,132,.4); }
+.msg.err  .msg-lbl { color: rgba(255,53,83,.4); }
+
+.bubble {
+  padding: 10px 14px; border-radius: 10px;
+  word-break: break-word; font-size: 13px; line-height: 1.7; max-width: 100%;
+}
+.msg.user  .bubble { background: rgba(0,170,255,.07); border: 1px solid rgba(0,170,255,.14); border-bottom-right-radius: 3px; }
+.msg.astra .bubble { background: var(--card); border: 1px solid var(--b2); border-bottom-left-radius: 3px; }
+.msg.sys   .bubble { background: rgba(0,0,0,.3); border: 1px solid var(--b1); font-family: var(--mono); font-size: 11px; color: var(--t3); }
+.msg.prog  .bubble { background: rgba(245,196,0,.05); border: 1px solid rgba(245,196,0,.15); font-family: var(--mono); font-size: 11px; color: var(--med); }
+.msg.ok    .bubble { background: var(--low2); border: 1px solid rgba(61,220,132,.2); font-family: var(--mono); font-size: 11px; color: var(--low); }
+.msg.err   .bubble { background: var(--crit2); border: 1px solid rgba(255,53,83,.2); font-family: var(--mono); font-size: 11px; color: var(--crit); }
+.msg.warn  .bubble { background: var(--hi2); border: 1px solid rgba(255,123,44,.2); font-family: var(--mono); font-size: 11px; color: var(--hi); }
+
+/* Markdown */
+.bubble h1,.bubble h2,.bubble h3 { color: var(--sig); margin: 12px 0 5px; font-weight: 600; }
+.bubble h1 { font-size: 15px; } .bubble h2 { font-size: 14px; } .bubble h3 { font-size: 13px; }
+.bubble code { font-family: var(--mono); font-size: 11px; background: rgba(0,0,0,.5); padding: 1px 5px; border-radius: 4px; color: var(--low); }
+.bubble pre { background: rgba(0,0,0,.6); border: 1px solid var(--b2); border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 8px 0; }
+.bubble pre code { background: none; padding: 0; color: var(--low); font-size: 11px; }
+.bubble ul,.bubble ol { margin: 6px 0 6px 20px; }
+.bubble li { margin-bottom: 3px; color: var(--t1); }
+.bubble strong { color: var(--sig); font-weight: 600; }
+.bubble em { color: var(--t2); }
+.bubble a { color: var(--sig); text-decoration: none; }
+.bubble a:hover { text-decoration: underline; }
+.bubble blockquote { border-left: 3px solid var(--sig); padding-left: 12px; color: var(--t2); margin: 8px 0; }
+.bubble hr { border: none; border-top: 1px solid var(--b1); margin: 10px 0; }
+.bubble table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 11px; font-family: var(--mono); }
+.bubble th { background: rgba(0,170,255,.08); color: var(--sig); padding: 5px 10px; border: 1px solid var(--b2); text-align: left; font-size: 10px; letter-spacing: 1px; }
+.bubble td { padding: 4px 10px; border: 1px solid var(--b1); color: var(--t2); }
+.bubble tr:hover td { background: rgba(255,255,255,.02); }
+
+/* Streaming cursor */
+.streaming::after { content: "▋"; animation: blink .6s step-end infinite; color: var(--sig); }
+
+/* Scan progress bar */
+.scan-progress {
+  background: var(--dark); border: 1px solid var(--b2);
+  border-radius: 8px; overflow: hidden; margin: 4px 0;
+  font-family: var(--mono); font-size: 11px;
+}
+.scan-progress-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 12px; background: rgba(0,0,0,.3);
+}
+.scan-progress-title { color: var(--sig); font-weight: 600; font-size: 10px; letter-spacing: 1px; }
+.scan-progress-pct { color: var(--t3); font-size: 10px; }
+.scan-bar-wrap { padding: 0 12px 8px; }
+.scan-bar-track { background: var(--b1); height: 3px; border-radius: 2px; overflow: hidden; margin-top: 6px; }
+.scan-bar-fill {
+  height: 100%; border-radius: 2px;
+  background: linear-gradient(90deg, var(--sig2), var(--sig));
+  transition: width .3s ease;
+  animation: barPulse 1.5s ease infinite;
+  box-shadow: 0 0 8px rgba(0,170,255,.4);
+}
+.scan-log { max-height: 100px; overflow-y: auto; padding: 6px 12px; }
+.scan-log-line { color: var(--t3); font-size: 10px; line-height: 1.8; }
+.scan-log-line.highlight { color: var(--med); }
+.scan-log-line.alert { color: var(--crit); font-weight: 600; }
+.scan-log-line.success { color: var(--low); }
+
+/* Stats chips */
+.stats-row { display: flex; gap: 7px; flex-wrap: wrap; margin: 5px 0; }
+.stat-chip {
+  background: var(--card); border: 1px solid var(--b2); border-radius: 6px;
+  padding: 4px 10px; font-family: var(--mono); font-size: 10px; color: var(--t3);
+  display: flex; align-items: center; gap: 5px;
+}
+.stat-chip .sv { font-size: 14px; font-weight: 700; }
+.stat-chip.crit .sv { color: var(--crit); }
+.stat-chip.high .sv { color: var(--hi); }
+.stat-chip.med  .sv { color: var(--med); }
+.stat-chip.ok   .sv { color: var(--low); }
+.stat-chip.blue .sv { color: var(--sig); }
+
+/* Finding cards */
+.findings-grid { display: flex; flex-direction: column; gap: 5px; margin: 6px 0; }
+.finding-card {
+  background: var(--raised); border: 1px solid var(--b2); border-radius: 8px;
+  padding: 9px 13px; cursor: pointer; transition: .12s;
+  animation: slideIn .15s ease;
+}
+.finding-card:hover { border-color: var(--sig); background: var(--card); }
+.finding-card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+.finding-type { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .5px; }
+.sev-pill {
+  font-family: var(--mono); font-size: 9px; font-weight: 700;
+  padding: 2px 7px; border-radius: 10px; letter-spacing: 1px;
+}
+.sev-critical { background: var(--crit2); color: var(--crit); border: 1px solid rgba(255,53,83,.3); }
+.sev-high     { background: var(--hi2);   color: var(--hi);   border: 1px solid rgba(255,123,44,.3); }
+.sev-medium   { background: var(--med2);  color: var(--med);  border: 1px solid rgba(245,196,0,.3); }
+.sev-low      { background: var(--low2);  color: var(--low);  border: 1px solid rgba(61,220,132,.3); }
+.sev-info     { background: var(--info2); color: var(--info); border: 1px solid rgba(157,143,255,.3); }
+.finding-detail { font-family: var(--mono); font-size: 10px; color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.finding-url   { font-size: 10px; color: var(--t4); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.finding-card-click-hint { font-size: 9px; color: var(--t4); margin-top: 4px; font-family: var(--mono); }
+
+/* Input bar */
+.input-bar {
+  padding: 10px 12px; background: var(--abyss);
+  border-top: 1px solid var(--b1); flex-shrink: 0;
+}
+.quick-row { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }
+.qbtn {
+  padding: 3px 9px; border-radius: 4px;
+  border: 1px solid var(--b2); background: transparent;
+  color: var(--t3); font-family: var(--mono); font-size: 10px;
+  cursor: pointer; transition: .12s; white-space: nowrap;
+}
+.qbtn:hover { border-color: var(--sig); color: var(--sig); background: var(--sig4); }
+.input-row { display: flex; gap: 7px; align-items: flex-end; }
+.chat-ta {
+  flex: 1; background: var(--dark); border: 1px solid var(--b2);
+  border-radius: 8px; padding: 10px 13px;
+  font-family: var(--sans); font-size: 13px; color: var(--t1);
+  outline: none; resize: none; min-height: 42px; max-height: 120px;
+  transition: .15s; line-height: 1.5;
+}
+.chat-ta:focus { border-color: var(--sig); box-shadow: 0 0 0 2px rgba(0,170,255,.1); }
+.chat-ta::placeholder { color: var(--t4); }
+.send-btn {
+  width: 42px; height: 42px; border-radius: 8px;
+  border: none; background: var(--sig); color: #000;
+  cursor: pointer; font-size: 18px; font-weight: 700;
+  flex-shrink: 0; transition: .15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.send-btn:hover { background: var(--sig2); }
+.send-btn:active { transform: scale(.95); }
+
+/* ═══════ RIGHT PANEL ═══════ */
+.rpanel {
+  width: 320px; flex-shrink: 0;
+  background: var(--abyss); border-left: 1px solid var(--b1);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+/* Tabs */
+.rtabs { display: flex; border-bottom: 1px solid var(--b1); flex-shrink: 0; }
+.rtab {
+  flex: 1; padding: 10px 6px; border: none;
+  background: transparent; color: var(--t3);
+  font-family: var(--mono); font-size: 9px;
+  letter-spacing: 1.5px; text-transform: uppercase;
+  cursor: pointer; transition: .15s;
+  border-bottom: 2px solid transparent;
+}
+.rtab:hover { color: var(--t2); }
+.rtab.active { color: var(--sig); border-bottom-color: var(--sig); }
+
+.rpane { flex: 1; overflow-y: auto; padding: 12px; display: none; flex-direction: column; gap: 10px; }
+.rpane.active { display: flex; }
+
+/* Form */
+.fgroup { display: flex; flex-direction: column; gap: 5px; }
+.flabel {
+  font-family: var(--mono); font-size: 9px; color: var(--t4);
+  letter-spacing: 2px; text-transform: uppercase;
+}
+.finput, .fselect, .ftarea {
+  background: var(--dark); border: 1px solid var(--b2);
+  border-radius: 6px; padding: 7px 10px;
+  font-family: var(--mono); font-size: 11px; color: var(--t1);
+  outline: none; transition: .15s; width: 100%;
+}
+.finput:focus,.fselect:focus,.ftarea:focus { border-color: var(--sig); box-shadow: 0 0 0 2px rgba(0,170,255,.08); }
+.ftarea { resize: vertical; min-height: 60px; font-family: var(--sans); font-size: 12px; }
+.fselect option { background: var(--dark); }
+
+.report-out {
+  background: var(--dark); border: 1px solid var(--b2);
+  border-radius: 6px; padding: 10px; font-family: var(--mono);
+  font-size: 10px; color: var(--t2); white-space: pre-wrap;
+  max-height: 280px; overflow-y: auto; display: none; line-height: 1.7;
+}
+
+/* Gate */
+.gate-q {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 9px 11px; border-radius: 7px;
+  border: 1px solid var(--b1); background: var(--dark);
+  cursor: pointer; transition: .15s; font-size: 12px; color: var(--t2);
+}
+.gate-q:hover { border-color: var(--b2); }
+.gate-q.pass { border-color: rgba(61,220,132,.4); background: var(--low2); color: var(--low); }
+.gate-q.fail { border-color: rgba(255,53,83,.4);  background: var(--crit2); color: var(--crit); }
+.gate-chk {
+  width: 18px; height: 18px; border: 1px solid var(--b2);
+  border-radius: 4px; flex-shrink: 0; display: flex;
+  align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; margin-top: 1px;
+}
+.gate-q.pass .gate-chk { background: var(--low);  border-color: var(--low);  color: #000; }
+.gate-q.fail .gate-chk { background: var(--crit); border-color: var(--crit); color: #fff; }
+.gate-verdict {
+  padding: 12px; border-radius: 8px; font-family: var(--mono);
+  font-size: 13px; text-align: center; font-weight: 700; display: none; line-height: 1.6;
+}
+.gate-verdict.go   { background: var(--low2);  border: 1px solid rgba(61,220,132,.3); color: var(--low); }
+.gate-verdict.nogo { background: var(--crit2); border: 1px solid rgba(255,53,83,.3);  color: var(--crit); }
+.gate-verdict.weak { background: var(--med2);  border: 1px solid rgba(245,196,0,.3);  color: var(--med); }
+
+/* Memory */
+.mem-entry {
+  padding: 9px 11px; border-radius: 7px;
+  background: var(--dark); border: 1px solid var(--b1);
+  animation: fadeUp .15s ease;
+}
+.mem-type { font-family: var(--mono); font-size: 9px; color: var(--sig); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px; }
+.mem-content { font-size: 11px; color: var(--t2); line-height: 1.5; }
+.mem-time { font-family: var(--mono); font-size: 9px; color: var(--t4); margin-top: 4px; }
+
+/* Settings */
+.prov-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 7px;
+  border: 1px solid var(--b1); background: var(--dark);
+  font-family: var(--mono); font-size: 11px; transition: .12s;
+}
+.prov-row:hover { border-color: var(--b2); }
+.prov-name { flex: 1; color: var(--t2); }
+.prov-active { font-size: 9px; color: var(--low); }
+.prov-inactive { font-size: 9px; color: var(--t4); }
+
+/* Vuln class grid */
+.vuln-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.vuln-chip {
+  background: var(--dark); border: 1px solid var(--b1);
+  border-radius: 5px; padding: 4px 8px;
+  font-family: var(--mono); font-size: 9px; color: var(--t3);
+  display: flex; align-items: center; gap: 5px;
+  transition: .12s;
+}
+.vuln-chip:hover { border-color: var(--sig); color: var(--sig); }
+.vuln-chip .vc-dot { width: 4px; height: 4px; border-radius: 50%; flex-shrink: 0; }
+.vuln-chip.crit .vc-dot { background: var(--crit); }
+.vuln-chip.high .vc-dot { background: var(--hi); }
+.vuln-chip.med  .vc-dot { background: var(--med); }
+
+/* Welcome screen */
+.welcome {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; flex: 1; padding: 40px 24px; text-align: center;
+  gap: 22px;
+}
+.welcome-ascii {
+  font-family: var(--mono); font-size: 10px;
+  color: rgba(0,170,255,.3); line-height: 1.2;
+  white-space: pre; letter-spacing: 1px;
+  text-shadow: 0 0 20px rgba(0,170,255,.3);
+}
+.welcome h2 { font-size: 20px; font-weight: 600; color: var(--t1); letter-spacing: -0.5px; }
+.welcome p  { font-size: 13px; color: var(--t2); max-width: 420px; line-height: 1.7; }
+.step-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 440px; }
+.step-card {
+  background: var(--card); border: 1px solid var(--b2);
+  border-radius: 10px; padding: 14px; text-align: left;
+  transition: .15s;
+}
+.step-card:hover { border-color: var(--sig); transform: translateY(-1px); }
+.step-tag { font-family: var(--mono); font-size: 9px; color: var(--sig); letter-spacing: 2px; margin-bottom: 6px; }
+.step-title { font-size: 13px; font-weight: 600; color: var(--t1); margin-bottom: 4px; }
+.step-desc { font-size: 11px; color: var(--t3); line-height: 1.5; }
+.vuln-count-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--crit2); border: 1px solid rgba(255,53,83,.3);
+  color: var(--crit); font-family: var(--mono); font-size: 11px;
+  padding: 4px 12px; border-radius: 20px;
+}
+
+/* Dots loader */
+.dots { display: inline-flex; gap: 3px; align-items: center; }
+.dots span { width: 4px; height: 4px; border-radius: 50%; background: var(--med); display: inline-block; }
+.dots span:nth-child(1) { animation: dot1 1s infinite; }
+.dots span:nth-child(2) { animation: dot2 1s infinite; }
+.dots span:nth-child(3) { animation: dot3 1s infinite; }
+
+/* Divider */
+.divider { height: 1px; background: var(--b1); margin: 4px 0; }
+</style>
+</head>
+<body>
+
+<!-- Scan line sweep — appears during active scans -->
+<div class="scan-line" id="scan-line"></div>
+
+<!-- ═══════ HEADER ═══════ -->
+<header>
+  <div class="logo-block">
+    <div class="logo-hex">A</div>
+    <div>
+      <div class="logo-name">ASTRA</div>
+      <div class="logo-ver">ULTRA SECURITY RESEARCH AGENT</div>
+    </div>
+  </div>
+
+  <div class="hdr-center">
+    <div class="hdr-stat"><span>TOOLS</span><span class="val" id="hdr-tools">—</span></div>
+    <div class="hdr-stat"><span>TARGETS</span><span class="val" id="hdr-targets">—</span></div>
+    <div class="hdr-stat"><span>FINDINGS</span><span class="val" id="hdr-findings">—</span></div>
+    <div class="hdr-stat"><span>MEMORY</span><span class="val" id="hdr-memory">—</span></div>
+  </div>
+
+  <div class="hdr-right">
+    <div class="chip" id="ai-chip"><span class="dot-led"></span><span id="ai-chip-txt">AI: detecting...</span></div>
+    <div class="chip" id="conn-chip"><span class="dot-led"></span><span id="conn-chip-txt">connecting</span></div>
+    <button class="btn" onclick="switchRTab('settings')" style="font-size:11px">⚙ Settings</button>
+  </div>
+</header>
+
+<!-- ═══════ WORKSPACE ═══════ -->
+<div class="workspace">
+
+  <!-- SIDEBAR LEFT -->
+  <aside class="sidebar">
+    <div class="sb-head">Tools <button onclick="reloadStatus()" title="Refresh">↻</button></div>
+    <div class="sb-scroll" id="tool-list" style="flex:0 0 auto">
+      <div class="tool-row"><span class="tool-led"></span>loading...</div>
+    </div>
+
+    <div class="sb-section">
+      <div class="sb-head">Recent Targets</div>
+      <div id="sess-list">
+        <div style="padding:6px 12px;font-family:var(--mono);font-size:10px;color:var(--t4)">None yet</div>
+      </div>
+    </div>
+
+    <div class="sb-section">
+      <div class="sb-head">System</div>
+      <div class="mem-stat" id="mem-stat">— entries</div>
+    </div>
+
+    <div class="sb-section" style="flex:1">
+      <div class="sb-head">Hunt Rules</div>
+      <div class="rules-list">
+        <div class="r"><span class="rn">1.</span> Read scope first</div>
+        <div class="r"><span class="rn">2.</span> Real bugs only</div>
+        <div class="r"><span class="rn">3.</span> Kill weak findings</div>
+        <div class="r"><span class="rn">4.</span> Stay in scope</div>
+        <div class="r"><span class="rn">5.</span> 5-min rule</div>
+        <div class="r"><span class="rn">6.</span> Validate first</div>
+        <div class="r"><span class="rn">7.</span> Impact first</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN CHAT -->
+  <div class="chat-area">
+
+    <!-- Target bar -->
+    <div class="tgt-bar">
+      <span class="tgt-label">TARGET</span>
+      <input class="tgt-input" id="tgt" placeholder="target.com" autocomplete="off" spellcheck="false">
+      <button class="btn" id="btn-recon" onclick="doRecon()">⬡ Recon</button>
+      <button class="btn" id="btn-hunt"  onclick="doHunt()">◎ Hunt</button>
+      <button class="btn btn-autopilot" id="btn-auto" onclick="doAutopilot()">⚡ Autopilot</button>
+      <button class="btn btn-sig" onclick="doAnalyze()">Ask AI</button>
+    </div>
+
+    <!-- Auth headers -->
+    <div class="auth-strip">
+      <div class="auth-toggle" onclick="toggleAuth()">
+        <span class="arrow" id="auth-arrow">▶</span>
+        Auth Headers (Bearer, Cookie, API key — optional)
+      </div>
+      <div class="auth-body" id="auth-body">
+        <textarea id="auth-hdrs" rows="3"
+          placeholder="Authorization: Bearer eyJ...&#10;Cookie: session=abc123&#10;X-API-Key: your_key"></textarea>
+      </div>
+    </div>
+
+    <!-- Messages -->
+    <div class="msgs" id="msgs">
+      <div class="welcome" id="welcome">
+        <div class="welcome-ascii"> █████╗ ███████╗████████╗██████╗  █████╗ 
+██╔══██╗██╔════╝╚══██╔══╝██╔══██╗██╔══██╗
+███████║███████╗   ██║   ██████╔╝███████║
+██╔══██║╚════██║   ██║   ██╔══██╗██╔══██║
+██║  ██║███████║   ██║   ██║  ██║██║  ██║
+╚═╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝</div>
+        <h2>Security Research Agent</h2>
+        <p>Enter a target you are <strong style="color:var(--low)">authorized to test</strong>. Astra runs 25 vulnerability classes automatically — from SQLi to subdomain takeover.</p>
+        <div class="vuln-count-badge">⚡ 25 Vulnerability Classes Active</div>
+        <div class="step-grid">
+          <div class="step-card">
+            <div class="step-tag">01 — RECON</div>
+            <div class="step-title">Map Surface</div>
+            <div class="step-desc">Subdomains, live hosts, tech stack, JS secrets, port scan</div>
+          </div>
+          <div class="step-card">
+            <div class="step-tag">02 — HUNT</div>
+            <div class="step-title">Find Bugs</div>
+            <div class="step-desc">SQLi · XSS · SSRF · LFI · IDOR · SSTI · CORS · XXE + 17 more</div>
+          </div>
+          <div class="step-card">
+            <div class="step-tag">03 — TRIAGE</div>
+            <div class="step-title">AI Analysis</div>
+            <div class="step-desc">Elite triage, chain attacks, manual confirmation steps, bounty estimates</div>
+          </div>
+          <div class="step-card">
+            <div class="step-tag">04 — REPORT</div>
+            <div class="step-title">Get Paid</div>
+            <div class="step-desc">Submission-ready H1/Bugcrowd/Intigriti reports in seconds</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input bar -->
+    <div class="input-bar">
+      <div class="quick-row">
+        <button class="qbtn" onclick="qp('What are the highest-priority targets from my recon? Be specific with URLs.')">Priority targets</button>
+        <button class="qbtn" onclick="qp('Give me exact IDOR test steps with Burp Suite requests for this target.')">IDOR steps</button>
+        <button class="qbtn" onclick="qp('How can I chain these findings for maximum impact? Map the escalation path.')">Chain attacks</button>
+        <button class="qbtn" onclick="qp('Run the 7-question gate on my latest finding and give go/no-go verdict.')">Validate</button>
+        <button class="qbtn" onclick="qp('What auth bypass techniques work for this tech stack? Give payloads.')">Auth bypass</button>
+        <button class="qbtn" onclick="qp('What business logic flaws should I test manually? Give 5 specific tests.')">Logic flaws</button>
+        <button class="qbtn" onclick="qp('How do I test for SSRF? Give exact payloads and cloud metadata URLs.')">SSRF payloads</button>
+        <button class="qbtn" onclick="qp('What GraphQL attacks should I run? Give introspection bypass techniques.')">GraphQL</button>
+        <button class="qbtn" onclick="qp('Generate a Burp Suite intruder payload list for brute-forcing this endpoint.')">Burp payloads</button>
+        <button class="qbtn" onclick="qp('What CVEs affect the detected tech stack? Give exploitability rating.')">CVEs</button>
+      </div>
+      <div class="input-row">
+        <textarea class="chat-ta" id="cin" rows="1"
+          placeholder="Ask Astra — payloads, techniques, triage, next steps... (Enter to send, Shift+Enter newline)"></textarea>
+        <button class="send-btn" onclick="sendChat()">↑</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="rpanel">
+    <div class="rtabs">
+      <button class="rtab active" onclick="switchRTab('scan')">Scan</button>
+      <button class="rtab" onclick="switchRTab('report')">Report</button>
+      <button class="rtab" onclick="switchRTab('validate')">Gate</button>
+      <button class="rtab" onclick="switchRTab('memory')">Memory</button>
+      <button class="rtab" onclick="switchRTab('settings')">Config</button>
+      <button class="rtab" onclick="switchRTab('details')">Details</button>
+    </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <!-- SCAN TAB -->
+    <div class="rpane active" id="rpane-scan">
+      <!-- Vulnerability classes -->
+      <div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--t4);letter-spacing:2px;text-transform:uppercase;margin-bottom:7px">25 VULNERABILITY CLASSES</div>
+        <div class="vuln-grid">
+          <div class="vuln-chip crit"><span class="vc-dot"></span>SQL Injection</div>
+          <div class="vuln-chip crit"><span class="vc-dot"></span>XSS (3 types)</div>
+          <div class="vuln-chip crit"><span class="vc-dot"></span>SSRF</div>
+          <div class="vuln-chip crit"><span class="vc-dot"></span>Path Traversal</div>
+          <div class="vuln-chip crit"><span class="vc-dot"></span>Command Inject</div>
+          <div class="vuln-chip crit"><span class="vc-dot"></span>SSTI / RCE</div>
+          <div class="vuln-chip crit"><span class="vc-dot"></span>XXE Injection</div>
+          <div class="vuln-chip crit"><span class="vc-dot"></span>JS Secrets</div>
+          <div class="vuln-chip high"><span class="vc-dot"></span>CORS Misconfig</div>
+          <div class="vuln-chip high"><span class="vc-dot"></span>IDOR / BOLA</div>
+          <div class="vuln-chip high"><span class="vc-dot"></span>Auth Bypass</div>
+          <div class="vuln-chip high"><span class="vc-dot"></span>Open Redirect</div>
+          <div class="vuln-chip high"><span class="vc-dot"></span>Subdomain Takeover</div>
+          <div class="vuln-chip high"><span class="vc-dot"></span>GraphQL</div>
+          <div class="vuln-chip high"><span class="vc-dot"></span>JWT Vulns</div>
+          <div class="vuln-chip high"><span class="vc-dot"></span>CRLF Injection</div>
+          <div class="vuln-chip high"><span class="vc-dot"></span>Cache Poisoning</div>
+          <div class="vuln-chip med"><span class="vc-dot"></span>Exposed Paths</div>
+          <div class="vuln-chip med"><span class="vc-dot"></span>Security Headers</div>
+          <div class="vuln-chip med"><span class="vc-dot"></span>No Rate Limit</div>
+          <div class="vuln-chip med"><span class="vc-dot"></span>HTTP Methods</div>
+          <div class="vuln-chip med"><span class="vc-dot"></span>Info Disclosure</div>
+          <div class="vuln-chip med"><span class="vc-dot"></span>CMS-Specific</div>
+          <div class="vuln-chip med"><span class="vc-dot"></span>WAF Detection</div>
+          <div class="vuln-chip med"><span class="vc-dot"></span>Nuclei Full</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Live scan progress -->
+      <div id="scan-status-block">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--t4);letter-spacing:2px;text-transform:uppercase;margin-bottom:7px">SCAN STATUS</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--t4);text-align:center;padding:20px 0">
+          No active scan.<br>Enter target → Recon or Hunt.
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Last findings summary -->
+      <div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--t4);letter-spacing:2px;text-transform:uppercase;margin-bottom:7px">LAST FINDINGS</div>
+        <div id="scan-findings-summary">
+          <div style="font-family:var(--mono);font-size:11px;color:var(--t4);text-align:center;padding:10px 0">No findings yet</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- REPORT TAB -->
+    <div class="rpane" id="rpane-report">
+      <div class="fgroup">
+        <label class="flabel">Finding Title</label>
+        <input class="finput" id="rf" placeholder="e.g. IDOR on /api/user/{id}">
+      </div>
+      <div class="fgroup">
+        <label class="flabel">Vulnerability Type</label>
+        <input class="finput" id="rv" placeholder="IDOR, SQLi, XSS, SSRF...">
+      </div>
+      <div class="fgroup">
+        <label class="flabel">Severity</label>
+        <select class="fselect" id="rs">
+          <option>Critical</option><option>High</option>
+          <option selected>Medium</option><option>Low</option><option>Informational</option>
+        </select>
+      </div>
+      <div class="fgroup">
+        <label class="flabel">Impact</label>
+        <textarea class="ftarea" id="ri" placeholder="What can an attacker do? e.g. Access other users' private profile data, PII exposure..."></textarea>
+      </div>
+      <div class="fgroup">
+        <label class="flabel">Steps to Reproduce</label>
+        <textarea class="ftarea" id="rst" rows="4"
+          placeholder="1. Login to account A&#10;2. Navigate to /api/user/123&#10;3. Change ID to 124&#10;4. Observe user B's data returned"></textarea>
+      </div>
+      <div class="fgroup">
+        <label class="flabel">Tools Used</label>
+        <input class="finput" id="rt" placeholder="Burp Suite, nuclei, manual...">
+      </div>
+      <button class="btn btn-sig" style="width:100%" onclick="genReport()">Generate Report</button>
+      <button class="btn" style="width:100%" onclick="aiEnhanceReport()">✨ AI Enhance with Impact</button>
+      <button class="btn" style="width:100%" onclick="copyReport()">⊕ Copy to Clipboard</button>
+      <div class="report-out" id="rout"></div>
+    </div>
+
+    <!-- GATE TAB -->
+    <div class="rpane" id="rpane-validate">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--t3);line-height:1.7;padding:6px 0">
+        7-Question Validation Gate. All 7 must pass before reporting. Click each to mark pass ✓ or fail ✗.
+      </div>
+      <div class="fgroup">
+        <label class="flabel">Describe Your Finding</label>
+        <textarea class="ftarea" id="vf" rows="3" placeholder="I found that unauthenticated users can access /api/admin and retrieve..."></textarea>
+      </div>
+      <button class="btn btn-sig" style="width:100%" onclick="loadGate()">Load Gate</button>
+      <div id="gate-qs" style="display:flex;flex-direction:column;gap:5px"></div>
+      <div class="gate-verdict" id="gate-verdict"></div>
+      <button class="btn" id="ai-gate-btn" style="width:100%;display:none" onclick="aiGate()">Ask Astra to Analyze</button>
+    </div>
+
+    <!-- MEMORY TAB -->
+    <div class="rpane" id="rpane-memory">
+      <div style="display:flex;gap:6px">
+        <input class="finput" id="msearch" placeholder="Search memory..." style="flex:1">
+        <button class="btn" onclick="searchMem()">Go</button>
+      </div>
+      <button class="btn btn-crit" style="width:100%" onclick="clearMem()">⊗ Clear All Memory</button>
+      <div id="mem-entries">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--t4);padding:10px 0;text-align:center">
+          Run recon or chat to build memory.
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS TAB -->
+    <div class="rpane" id="rpane-settings">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--t3);line-height:1.8;padding:4px 0">
+        AI provider auto-detection order:<br>
+        <span style="color:var(--sig)">Ollama</span> → Groq → DeepSeek → Claude → OpenAI → Gemini
+      </div>
+
+      <div style="background:var(--dark);border:1px solid var(--b2);border-radius:8px;padding:10px">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--t4);text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Active Providers</div>
+        <div id="prov-list">
+          <div style="font-family:var(--mono);font-size:11px;color:var(--t4)">Detecting...</div>
+        </div>
+      </div>
+
+      <div class="fgroup">
+        <label class="flabel">Provider</label>
+        <select class="fselect" id="prov-sel" onchange="toggleKeyInput()">
+          <option value="groq">Groq — Free tier (fast)</option>
+          <option value="anthropic">Claude / Anthropic</option>
+          <option value="deepseek">DeepSeek — Very cheap</option>
+          <option value="openai">OpenAI</option>
+          <option value="gemini">Gemini (Google)</option>
+          <option value="ollama">Ollama — Local, free, offline</option>
+        </select>
+      </div>
+      <div class="fgroup" id="key-group">
+        <label class="flabel">API Key</label>
+        <input class="finput" id="prov-key" type="password" placeholder="sk-...  or  gsk_...">
+      </div>
+      <button class="btn btn-sig" style="width:100%" onclick="saveProvider()">Save Provider</button>
+
+      <div class="divider"></div>
+
+      <div style="background:var(--dark);border:1px solid var(--b1);border-radius:8px;padding:10px;font-family:var(--mono);font-size:10px;color:var(--t4);line-height:2">
+        <div style="color:var(--sig);margin-bottom:4px">Free Options</div>
+        Ollama → ollama.ai (100% local)<br>
+        Groq  → console.groq.com (free tier)<br>
+        DeepSeek → $0.001/1K tokens
+      </div>
+
+      <div class="fgroup">
+        <label class="flabel">Ollama Model Override</label>
+        <input class="finput" id="ollama-model" placeholder="qwen2.5:14b / llama3.2">
+        <button class="btn" style="width:100%;margin-top:4px" onclick="setOllamaModel()">Set Model</button>
+      </div>
+
+      <div class="divider"></div>
+
+      <div style="font-family:var(--mono);font-size:9px;color:var(--t4);line-height:2;text-align:center">
+        Astra v6.0 · 25 Vuln Classes · Security Research Agent<br>
+        <span style="color:var(--crit)">Only test authorized targets</span>
+      </div>
+    </div>
+  </div>
+</div><!-- /workspace -->
+
+<script>
+// ═══════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════
+const socket = io({ transports: ['websocket','polling'] });
+let curTarget = '';
+let streamBubble = null, streamBuf = '';
+let authOpen = false;
+let totalFindings = 0;
+let scanLogLines = [];
+let scanPct = 0;
+let activeScanType = null;
+
+// 25 scan phases for progress tracking
+const RECON_PHASES = [
+  "Subdomain enumeration","DNS bruteforce","Live host probing",
+  "Tech fingerprinting","URL crawling","JS secret hunting","Port scanning","Nuclei pre-scan"
+];
+const HUNT_PHASES = [
+  "SQL Injection","XSS scanning","SSRF testing","Open Redirects",
+  "CORS misconfig","Path Traversal","Exposed paths","IDOR testing",
+  "Auth bypass","Security headers","Command injection","SSTI testing",
+  "XXE injection","Subdomain takeover","GraphQL","JWT analysis",
+  "Rate limiting","CRLF injection","Cache poisoning","HTTP methods",
+  "Info disclosure","CMS-specific","WAF detection","JS secrets","Nuclei full scan"
+];
+
+// ═══════════════════════════════════════════════════
+// SOCKET EVENTS
+// ═══════════════════════════════════════════════════
+socket.on('connect', () => {
+  setChip('conn-chip','conn-chip-txt','● connected','on');
+  reloadStatus();
+});
+socket.on('disconnect', () => {
+  setChip('conn-chip','conn-chip-txt','○ offline','off');
+});
+socket.on('status', d => {
+  addMsg('sys', `Astra v6.0 ready — ${d.provider}`);
+});
+
+// AI streaming
+socket.on('thinking', d => {
+  addMsg('prog', `<span class="dots"><span></span><span></span><span></span></span> ${d.msg}`);
+});
+socket.on('stream', d => {
+  streamBuf += d.chunk;
+  if (!streamBubble) {
+    const { bubble } = addMsg('astra','');
+    streamBubble = bubble;
+    streamBubble.classList.add('streaming');
+  }
+  streamBubble.innerHTML = marked.parse(streamBuf);
+  scrollDown();
+});
+socket.on('stream_done', d => {
+  if (streamBubble) {
+    streamBubble.classList.remove('streaming');
+    streamBubble.innerHTML = marked.parse(d.full || streamBuf);
+    streamBubble = null; streamBuf = '';
+  }
+  scrollDown();
+});
+
+// RECON events
+socket.on('recon_start', d => {
+  hideWelcome();
+  activeScanType = 'recon';
+  setBusy('btn-recon', true, '⬡ Scanning...');
+  startScanLine();
+  scanLogLines = [];
+  showScanProgress('RECON', RECON_PHASES);
+  addMsg('prog', `<span class="dots"><span></span><span></span><span></span></span> Recon started on <strong>${d.target}</strong>`);
+});
+socket.on('recon_progress', d => {
+  const line = d.msg || '';
+  scanLogLines.push(line);
+  updateScanLog(line);
+  // advance progress
+  const phaseMatch = RECON_PHASES.findIndex(p => line.toLowerCase().includes(p.toLowerCase().split(' ')[0]));
+  if (phaseMatch >= 0) setScanPct(Math.round(((phaseMatch+1)/RECON_PHASES.length)*100));
+  // highlight alerts
+  if (line.includes('⚠') || line.includes('!')) addMsg('warn', line);
+  else if (line.length > 3 && !line.includes('Starting')) { /* silent log */ }
+});
+socket.on('recon_done', d => {
+  setBusy('btn-recon', false, '⬡ Recon');
+  stopScanLine(); setScanPct(100);
+  const s = d.stats || {};
+  addReconSummary(s);
+  const { bubble } = addMsg('astra','');
+  bubble.innerHTML = marked.parse('**🔍 Recon Analysis:**\n\n' + d.analysis);
+  scrollDown(); reloadStatus();
+});
+
+// HUNT events
+socket.on('hunt_start', d => {
+  hideWelcome();
+  activeScanType = 'hunt';
+  setBusy('btn-hunt', true, '◎ Scanning...');
+  startScanLine();
+  scanLogLines = [];
+  showScanProgress('HUNT', HUNT_PHASES);
+  addMsg('prog', `<span class="dots"><span></span><span></span><span></span></span> Scan started on <strong>${d.target}</strong> — 25 vulnerability classes`);
+});
+socket.on('hunt_progress', d => {
+  const line = d.msg || '';
+  scanLogLines.push(line);
+  updateScanLog(line);
+  const phaseMatch = HUNT_PHASES.findIndex(p =>
+    line.toLowerCase().includes(p.toLowerCase().split(' ')[0].replace('/',''))
+  );
+  const pnum = parseInt(line.match(/(\d+)\/25/)?.[1] || '0');
+  if (pnum > 0) setScanPct(Math.round((pnum/25)*100));
+  else if (phaseMatch >= 0) setScanPct(Math.round(((phaseMatch+1)/25)*100));
+  if (line.includes('⚠')) addMsg('warn', line);
+});
+socket.on('hunt_done', d => {
+  setBusy('btn-hunt', false, '◎ Hunt');
+  stopScanLine(); setScanPct(100);
+  const findings = d.findings || [];
+  totalFindings += findings.length;
+  document.getElementById('hdr-findings').textContent = totalFindings;
+  renderFindingSummary(findings);
+  renderFindingCards(findings);
+  const { bubble } = addMsg('astra','');
+  bubble.innerHTML = marked.parse('**⚡ Elite Triage & Analysis:**\n\n' + d.analysis);
+  scrollDown();
+});
+
+// AUTOPILOT
+socket.on('autopilot_start', d => {
+  hideWelcome();
+  activeScanType = 'autopilot';
+  setBusy('btn-auto', true, '⚡ Running...');
+  startScanLine();
+  addMsg('prog', `<span class="dots"><span></span><span></span><span></span></span> Autopilot engaged on <strong>${d.target}</strong> — full recon + 25-class scan`);
+});
+socket.on('autopilot_progress', d => {
+  const line = d.msg || '';
+  updateScanLog(line);
+  if (line.includes('Phase 1')) setScanPct(5);
+  if (line.includes('Phase 2')) setScanPct(50);
+  if (line.includes('Phase 3')) setScanPct(90);
+  if (line.includes('⚠')) addMsg('warn', line);
+});
+socket.on('autopilot_done', d => {
+  setBusy('btn-auto', false, '⚡ Autopilot');
+  stopScanLine(); setScanPct(100);
+  const s = d.stats || {};
+  const { bubble: sb } = addMsg('ok', '');
+  sb.innerHTML = buildStatsRow([
+    {label:'subdomains',val:s.subdomains||0,cls:'blue'},
+    {label:'URLs',val:s.urls||0,cls:'blue'},
+    {label:'findings',val:s.findings||0,cls:'ok'},
+    {label:'critical',val:s.critical||0,cls:'crit'},
+    {label:'high',val:s.high||0,cls:'high'},
+  ]) + `✓ Autopilot complete`;
+  renderFindingCards(d.findings||[]);
+  const { bubble } = addMsg('astra','');
+  bubble.innerHTML = marked.parse('**📋 Executive Report:**\n\n' + d.analysis);
+  scrollDown();
+});
+
+socket.on('ai_analysis_start', d => {
+  addMsg('prog', `<span class="dots"><span></span><span></span><span></span></span> ${d.msg}`);
+});
+socket.on('error', d => {
+  addMsg('err', '✗ ' + d.msg);
+  setBusy('btn-recon',false,'⬡ Recon');
+  setBusy('btn-hunt',false,'◎ Hunt');
+  setBusy('btn-auto',false,'⚡ Autopilot');
+  stopScanLine();
+});
+
+// ═══════════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════════
+function getTarget() {
+  return document.getElementById('tgt').value.trim()
+    .replace(/^https?:\/\//,'').split('/')[0].split('?')[0];
+}
+function getHeaders() { return document.getElementById('auth-hdrs').value.trim(); }
+
+function doRecon() {
+  const t = getTarget();
+  if (!t) { alert('Enter a target domain first'); return; }
+  curTarget = t; hideWelcome();
+  socket.emit('recon', { target: t, headers: getHeaders() });
+}
+function doHunt() {
+  const t = getTarget();
+  if (!t) { alert('Enter a target domain first'); return; }
+  curTarget = t; hideWelcome();
+  socket.emit('hunt', { target: t, headers: getHeaders() });
+}
+function doAutopilot() {
+  const t = getTarget();
+  if (!t) { alert('Enter a target domain first'); return; }
+  if (!confirm(`Run full autopilot on ${t}?\nPhase 1: Recon → Phase 2: 25-class Hunt → Phase 3: AI Executive Report`)) return;
+  curTarget = t; hideWelcome();
+  socket.emit('autopilot', { target: t, headers: getHeaders() });
+}
+function doAnalyze() {
+  const t = getTarget();
+  if (!t) { alert('Enter a target domain first'); return; }
+  curTarget = t; hideWelcome();
+  qp(`Analyze ${t} as an elite bug bounty hunter:
+1. Most likely vulnerability classes for this target type
+2. Priority testing order with exact tools and commands
+3. Common mistakes hunters make on this type of target
+4. Quick wins I should check in the first 10 minutes
+5. What makes this target interesting or unusual?`);
+}
+
+function sendChat(override) {
+  const el = document.getElementById('cin');
+  const msg = override || el.value.trim();
+  if (!msg) return;
+  hideWelcome();
+  addMsg('user', msg);
+  el.value = ''; el.style.height = 'auto';
+  socket.emit('chat', { message: msg, target: curTarget });
+  scrollDown();
+}
+function qp(t) { document.getElementById('cin').value = t; sendChat(); }
+
+// ═══════════════════════════════════════════════════
+// SCAN PROGRESS UI
+// ═══════════════════════════════════════════════════
+function showScanProgress(title, phases) {
+  scanPct = 0;
+  const block = document.getElementById('scan-status-block');
+  block.innerHTML = `
+    <div style="font-family:var(--mono);font-size:9px;color:var(--t4);letter-spacing:2px;text-transform:uppercase;margin-bottom:7px">SCAN STATUS</div>
+    <div class="scan-progress">
+      <div class="scan-progress-header">
+        <span class="scan-progress-title">${title}</span>
+        <span class="scan-progress-pct" id="sp-pct">0%</span>
+      </div>
+      <div class="scan-bar-wrap">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--t3)" id="sp-phase">Initializing...</div>
+        <div class="scan-bar-track"><div class="scan-bar-fill" id="sp-bar" style="width:0%"></div></div>
+      </div>
+      <div class="scan-log" id="sp-log"></div>
+    </div>
+  `;
+}
+function setScanPct(pct) {
+  scanPct = Math.min(pct, 100);
+  const bar = document.getElementById('sp-bar');
+  const lbl = document.getElementById('sp-pct');
+  if (bar) bar.style.width = scanPct + '%';
+  if (lbl) lbl.textContent = scanPct + '%';
+}
+function updateScanLog(line) {
+  const log = document.getElementById('sp-log');
+  const phase = document.getElementById('sp-phase');
+  if (!log) return;
+  const isAlert = line.includes('⚠');
+  const isOk = line.includes('✓') || line.includes('Found') || line.includes('found');
+  const cls = isAlert ? 'alert' : isOk ? 'success' : 'highlight';
+  const div = document.createElement('div');
+  div.className = `scan-log-line ${cls}`;
+  div.textContent = line.length > 70 ? line.slice(0,70)+'…' : line;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  if (phase) {
+    const match = line.match(/\[(?:hunt|recon)\]\s+(.+)/i);
+    if (match) phase.textContent = match[1].slice(0,50);
+  }
+}
+function startScanLine() {
+  document.getElementById('scan-line').classList.add('active');
+}
+function stopScanLine() {
+  document.getElementById('scan-line').classList.remove('active');
+}
+
+function addReconSummary(s) {
+  const { bubble } = addMsg('ok','');
+  bubble.innerHTML = buildStatsRow([
+    { label:'subdomains', val:s.subdomains||0, cls:'blue' },
+    { label:'live',       val:s.live_hosts||0, cls:'ok' },
+    { label:'URLs',       val:s.urls||0,       cls:'blue' },
+    { label:'nuclei',     val:s.nuclei_findings||0, cls:'high' },
+    { label:'secrets',    val:s.js_secrets||0, cls:'crit' },
+  ]) + '✓ Recon complete';
+}
+function buildStatsRow(chips) {
+  return `<div class="stats-row">${chips.map(c =>
+    `<div class="stat-chip ${c.cls}"><span class="sv">${c.val}</span>${c.label}</div>`
+  ).join('')}</div>`;
+}
+
+function renderFindingCards(findings) {
+  if (!findings.length) return;
+  const { bubble } = addMsg('ok','');
+  const bySort = findings.slice(0,12);
+  bubble.innerHTML = `
+    <div class="stats-row" style="margin-bottom:8px">
+      ${['critical','high','medium','low'].map(sev => {
+        const n = findings.filter(f=>(f.severity||'').toLowerCase()===sev).length;
+        const cls = sev==='critical'?'crit':sev==='high'?'high':sev==='medium'?'med':'ok';
+        return n ? `<div class="stat-chip ${cls}"><span class="sv">${n}</span>${sev}</div>` : '';
+      }).join('')}
+    </div>
+    <div class="findings-grid">
+      ${bySort.map(f => {
+        const sev = (f.severity||'info').toLowerCase();
+        const sevClass = sev === 'critical' ? 'sev-critical' : sev === 'high' ? 'sev-high' :
+                        sev === 'medium' ? 'sev-medium' : sev === 'low' ? 'sev-low' : 'sev-info';
+        const detail = (f.detail||f.url||'').replace(/</g,'&lt;').slice(0,80);
+        const url = (f.url||'').slice(0,60);
+        const safeF = JSON.stringify(f).replace(/"/g,'&quot;');
+        return `<div class="finding-card" onclick='fillReport(${safeF})'>
+          <div class="finding-card-top">
+            <span class="finding-type" style="color:var(--${sev==='critical'?'crit':sev==='high'?'hi':sev==='medium'?'med':'low'})">${(f.type||'Finding').slice(0,35)}</span>
+            <span class="sev-pill ${sevClass}">${sev.toUpperCase()}</span>
+          </div>
+          ${detail ? `<div class="finding-detail">${detail}</div>` : ''}
+          ${url ? `<div class="finding-url">${url}</div>` : ''}
+          <div class="finding-card-click-hint">↗ click to fill report</div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+  renderFindingSummary(findings);
+  scrollDown();
+}
+
+function renderFindingSummary(findings) {
+  const el = document.getElementById('scan-findings-summary');
+  if (!el) return;
+  if (!findings.length) { el.innerHTML = '<div style="font-family:var(--mono);font-size:11px;color:var(--t4);text-align:center;padding:10px 0">No findings yet</div>'; return; }
+  const sev_order = ['critical','high','medium','low','info'];
+  const grouped = {};
+  sev_order.forEach(s => { grouped[s] = findings.filter(f=>(f.severity||'info').toLowerCase()===s); });
+  const lines = sev_order
+    .filter(s => grouped[s].length)
+    .map(s => {
+      const cls = s==='critical'?'crit':s==='high'?'hi':s==='medium'?'med':s==='low'?'low':'info';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--b0);font-family:var(--mono);font-size:11px">
+        <span style="color:var(--${cls});font-weight:700;min-width:18px">${grouped[s].length}</span>
+        <span style="color:var(--t3)">${s.toUpperCase()}</span>
+        <span style="color:var(--t4);font-size:9px;margin-left:auto">${grouped[s].slice(0,2).map(f=>(f.type||'').split(' ')[0]).join(', ')}</span>
+      </div>`;
+    }).join('');
+  el.innerHTML = lines;
+}
+
+function fillReport(f) {
+  document.getElementById('rf').value = f.type || 'Finding';
+  document.getElementById('rv').value = f.type || '';
+  document.getElementById('ri').value = f.impact || '';
+  document.getElementById('rst').value = f.url ? `1. Navigate to ${f.url}\n2. Observe: ${(f.detail||'').slice(0,120)}` : '';
+  switchRTab('report');
+}
+
+// ═══════════════════════════════════════════════════
+// REPORT
+// ═══════════════════════════════════════════════════
+async function genReport() {
+  const t = getTarget() || curTarget || 'unknown';
+  const f = document.getElementById('rf').value.trim();
+  if (!f) { alert('Enter a finding title'); return; }
+  const res = await fetch('/api/report', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      target: t, finding: f,
+      severity: document.getElementById('rs').value,
+      impact:   document.getElementById('ri').value,
+      steps:    document.getElementById('rst').value,
+      tools_used: document.getElementById('rt').value,
+      vuln_type: document.getElementById('rv').value,
+    })
+  });
+  const d = await res.json();
+  const out = document.getElementById('rout');
+  out.style.display = 'block'; out.textContent = d.report;
+  addMsg('ok', `✓ Report saved → ${d.saved_to}`);
+}
+
+async function aiEnhanceReport() {
+  const f = document.getElementById('rf').value.trim();
+  const type = document.getElementById('rv').value;
+  const sev = document.getElementById('rs').value;
+  if (!f) { alert('Enter a finding title first'); return; }
+  qp(`Write a professional bug bounty report for this finding:
+
+Title: ${f}
+Type: ${type}
+Severity: ${sev}
+Current impact notes: ${document.getElementById('ri').value || '(none)'}
+Current steps: ${document.getElementById('rst').value || '(none)'}
+
+Please write:
+1. A compelling impact section (2 paragraphs, business risk language)  
+2. Clear numbered reproduction steps with HTTP request examples
+3. Remediation with specific code fixes
+4. CVSS justification
+Format as professional bug bounty markdown.`);
+  switchRTab('report');
+}
+
+async function copyReport() {
+  const out = document.getElementById('rout');
+  if (!out.textContent) { await genReport(); return; }
+  try {
+    await navigator.clipboard.writeText(out.textContent);
+    addMsg('ok','✓ Report copied to clipboard');
+  } catch {
+    out.select?.();
+    document.execCommand('copy');
+    addMsg('ok','✓ Copied');
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// 7-QUESTION GATE
+// ═══════════════════════════════════════════════════
+async function loadGate() {
+  const f = document.getElementById('vf').value.trim();
+  if (!f) { alert('Describe your finding first'); return; }
+  const res = await fetch('/api/validate', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ finding: f })
+  });
+  const d = await res.json();
+  const c = document.getElementById('gate-qs');
+  c.innerHTML = '';
+  d.questions.forEach((q, i) => {
+    const el = document.createElement('div');
+    el.className = 'gate-q'; el.dataset.idx = i;
+    el.innerHTML = `<div class="gate-chk" id="gc-${i}"></div><div style="flex:1;line-height:1.5">${q}</div>`;
+    el.onclick = () => toggleGate(el, i);
+    c.appendChild(el);
+  });
+  document.getElementById('gate-verdict').style.display = 'none';
+  document.getElementById('ai-gate-btn').style.display = 'block';
+}
+function toggleGate(el, i) {
+  const chk = document.getElementById(`gc-${i}`);
+  if (el.classList.contains('pass')) { el.classList.remove('pass'); chk.textContent=''; }
+  else if (el.classList.contains('fail')) { el.classList.remove('fail'); el.classList.add('pass'); chk.textContent='✓'; }
+  else { el.classList.add('fail'); chk.textContent='✗'; }
+  updateGateScore();
+}
+function updateGateScore() {
+  const all  = document.querySelectorAll('.gate-q');
+  const pass = document.querySelectorAll('.gate-q.pass').length;
+  const fail = document.querySelectorAll('.gate-q.fail').length;
+  if (pass + fail < all.length) return;
+  const v = document.getElementById('gate-verdict');
+  v.style.display = 'block';
+  if (fail === 0) { v.className='gate-verdict go'; v.innerHTML='✓ VALID<br><small>All 7 passed — report it!</small>'; }
+  else if (fail <= 2) { v.className='gate-verdict weak'; v.innerHTML=`⚠ WEAK<br><small>${fail} questions failed — strengthen first</small>`; }
+  else { v.className='gate-verdict nogo'; v.innerHTML=`✗ DO NOT REPORT<br><small>${fail}/7 failed — not ready</small>`; }
+}
+function aiGate() {
+  const f = document.getElementById('vf').value.trim();
+  qp(`Apply the 7-Question Validation Gate to this finding. Give a detailed expert verdict, including what's weak and exactly how to improve each failed question:\n\n${f}`);
+  switchRTab('scan');
+}
+
+// ═══════════════════════════════════════════════════
+// MEMORY
+// ═══════════════════════════════════════════════════
+async function searchMem() {
+  const q = document.getElementById('msearch').value.trim();
+  const res = await fetch(`/api/memory?q=${encodeURIComponent(q)}&target=${encodeURIComponent(curTarget)}`);
+  const d = await res.json();
+  renderMem(d.entries || []);
+}
+function renderMem(entries) {
+  const c = document.getElementById('mem-entries');
+  if (!entries.length) {
+    c.innerHTML = '<div style="font-family:var(--mono);font-size:10px;color:var(--t4);text-align:center;padding:12px 0">No entries found.</div>';
+    return;
+  }
+  c.innerHTML = entries.slice().reverse().slice(0,30).map(e => `
+    <div class="mem-entry">
+      <div class="mem-type">${e.type||'note'}${e.target ? ' · '+e.target : ''}</div>
+      <div class="mem-content">${(e.content||'').slice(0,120)}</div>
+      <div class="mem-time">${(e.timestamp||'').slice(0,16)}</div>
+    </div>`).join('');
+}
+async function clearMem() {
+  if (!confirm('Clear all hunt memory?')) return;
+  await fetch('/api/memory/clear', { method:'POST' });
+  addMsg('ok','✓ Memory cleared');
+  renderMem([]);
+}
+
+// ═══════════════════════════════════════════════════
+// SETTINGS / PROVIDERS
+// ═══════════════════════════════════════════════════
+function toggleKeyInput() {
+  const sel = document.getElementById('prov-sel').value;
+  document.getElementById('key-group').style.display = sel === 'ollama' ? 'none' : 'flex';
+}
+async function saveProvider() {
+  const provider = document.getElementById('prov-sel').value;
+  const key = document.getElementById('prov-key').value.trim();
+  if (provider !== 'ollama' && !key) { alert('Enter your API key'); return; }
+  const res = await fetch('/api/providers', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ provider, key })
+  });
+  const d = await res.json();
+  if (d.ok) {
+    addMsg('ok',`✓ Provider set to ${d.provider}`);
+    document.getElementById('prov-key').value = '';
+    reloadStatus();
+  } else {
+    addMsg('err','✗ Failed: ' + d.error);
+  }
+}
+function setOllamaModel() {
+  const m = document.getElementById('ollama-model').value.trim();
+  if (!m) return;
+  fetch('/api/providers',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({provider:'ollama',key:'',model:m})});
+  addMsg('ok',`Ollama model → ${m}`);
+}
+
+// ═══════════════════════════════════════════════════
+// STATUS RELOAD
+// ═══════════════════════════════════════════════════
+async function reloadStatus() {
+  try {
+    const res = await fetch('/api/status');
+    const d = await res.json();
+
+    // Header stats
+    const toolCount = Object.values(d.tools||{}).filter(Boolean).length;
+    const totalTools = Object.keys(d.tools||{}).length;
+    document.getElementById('hdr-tools').textContent = `${toolCount}/${totalTools}`;
+    document.getElementById('hdr-targets').textContent = (d.sessions||[]).length;
+    const ms = d.memory || {};
+    document.getElementById('hdr-memory').textContent = `${ms.total_entries||0}`;
+
+    // AI chip
+    const prov = d.ai_provider || 'none';
+    const aiOk = prov !== 'none' && !prov.includes('none');
+    setChip('ai-chip','ai-chip-txt', `AI: ${prov}`, aiOk ? 'on' : 'warn');
+
+    // Tool list
+    const tl = document.getElementById('tool-list');
+    tl.innerHTML = Object.entries(d.tools||{}).map(([name, ok]) =>
+      `<div class="tool-row ${ok?'ok':'no'}">
+        <span class="tool-led"></span>${name}
+        ${ok ? '' : '<span class="tool-count" style="color:var(--crit);font-size:8px">✗</span>'}
+      </div>`
+    ).join('');
+
+    // Sessions
+    const sl = document.getElementById('sess-list');
+    const sessions = d.sessions || [];
+    if (sessions.length) {
+      sl.innerHTML = sessions.slice().reverse().map(s =>
+        `<button class="target-btn ${s.target===curTarget?'active':''}" onclick="loadTarget('${s.target}')">
+          <span class="t-icon">◉</span>${s.target}
+        </button>`
+      ).join('');
+    }
+
+    // Memory stat
+    document.getElementById('mem-stat').innerHTML =
+      `<span class="mv">${ms.total_entries||0}</span> entries · <span class="mv">${ms.size_mb||0}</span> MB`;
+
+    // Provider list in settings
+    const provs = d.ai_providers || [];
+    const pl = document.getElementById('prov-list');
+    if (pl) {
+      pl.innerHTML = provs.length
+        ? provs.map(p =>
+            `<div class="prov-row"><span class="prov-name">${p.name}</span><span class="prov-active">● active</span></div>`
+          ).join('')
+        : '<div style="font-family:var(--mono);font-size:11px;color:var(--t4)">No providers — add key above</div>';
+    }
+  } catch(e) { console.error('Status:', e); }
+}
+
+// ═══════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════
+function loadTarget(t) {
+  document.getElementById('tgt').value = t;
+  curTarget = t; hideWelcome(); searchMem();
+  // update active state
+  document.querySelectorAll('.target-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent.trim() === t);
+  });
+}
+
+function setChip(id, txtId, text, cls) {
+  const el = document.getElementById(id);
+  const tx = document.getElementById(txtId);
+  if (el) el.className = 'chip ' + (cls||'');
+  if (tx) tx.textContent = text;
+}
+
+function setBusy(id, busy, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.disabled = busy; el.textContent = text;
+}
+
+function addMsg(type, html) {
+  hideWelcome();
+  const msgs = document.getElementById('msgs');
+  const wrap = document.createElement('div');
+  wrap.className = `msg ${type}`;
+  const labels = { user:'YOU', astra:'ASTRA', sys:'SYSTEM', prog:'SCAN', ok:'DONE', err:'ERROR', warn:'ALERT' };
+  const lbl = document.createElement('div');
+  lbl.className = 'msg-lbl';
+  lbl.textContent = labels[type] || type.toUpperCase();
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  if (type === 'astra') bubble.innerHTML = html ? marked.parse(html) : '';
+  else bubble.innerHTML = html;
+  wrap.appendChild(lbl);
+  wrap.appendChild(bubble);
+  msgs.appendChild(wrap);
+  scrollDown();
+  return { wrap, bubble };
+}
+
+function hideWelcome() {
+  const w = document.getElementById('welcome');
+  if (w) w.remove();
+}
+function scrollDown() {
+  const m = document.getElementById('msgs');
+  m.scrollTop = m.scrollHeight;
+}
+
+function switchRTab(name) {
+  const tabs = ['scan','report','validate','memory','settings'];
+  document.querySelectorAll('.rtab').forEach((b,i) => b.classList.toggle('active', tabs[i]===name));
+  document.querySelectorAll('.rpane').forEach(p => p.classList.toggle('active', p.id===`rpane-${name}`));
+  if (name==='memory') searchMem();
+}
+
+function toggleAuth() {
+  authOpen = !authOpen;
+  document.getElementById('auth-body').classList.toggle('open', authOpen);
+  document.getElementById('auth-arrow').classList.toggle('open', authOpen);
+}
+
+// Keyboard
+const cin = document.getElementById('cin');
+cin.addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+});
+cin.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+});
+document.getElementById('tgt').addEventListener('change', function() {
+  curTarget = this.value.replace(/^https?:\/\//,'').split('/')[0];
+});
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey||e.metaKey) && e.key==='k') {
+    e.preventDefault(); document.getElementById('tgt').focus();
+    document.getElementById('tgt').select();
+  }
+  if ((e.ctrlKey||e.metaKey) && e.key==='Enter') { doHunt(); }
+});
+
+// Init
+marked.setOptions({ breaks: true, gfm: true });
+reloadStatus();
+setInterval(reloadStatus, 30000);
+</script>
+</body>
+</html>
