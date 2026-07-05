@@ -192,7 +192,7 @@ python3 -m venv venv
 source venv/bin/activate
 
 # Install Python dependencies
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 
 # Install external security tools
 chmod +x install_tools.sh
@@ -223,7 +223,7 @@ python3 app.py
 
 # 📬 Contact
 
-- 🐙 **GitHub:** https://github.com/Omchaudhari73
+- ℹ️ **Linkdin:** www.linkedin.com/in/omchaudhari7385 
 - 📧 **Email:** chaudhariom360@gmail.com
 
 ---
